@@ -79,7 +79,10 @@ async def http_suggest(q: str = "", k: int = 4) -> JSONResponse:
 
 
 @app.post("/api/transcribe")
-async def http_transcribe(audio: UploadFile = File(...), k: int = 4) -> JSONResponse:
+async def http_transcribe(audio: UploadFile = File(...)) -> JSONResponse:
+    """Fast path — returns ONLY the Sarvam ASR transcript + the primary
+    (ASR-echo) suggestion card. No LLM. Client calls /api/suggest next to
+    fill in the 3 alternate English spellings progressively."""
     wav_bytes = await audio.read()
     if not wav_bytes:
         return JSONResponse({"error": "empty_audio"}, status_code=400)
@@ -94,14 +97,12 @@ async def http_transcribe(audio: UploadFile = File(...), k: int = 4) -> JSONResp
     )
     transcript = _final_transcript(raw)
     if not transcript:
-        return JSONResponse({"transcript": "", "suggestions": [],
+        return JSONResponse({"transcript": "", "primary": None,
                              "error": "no_speech_detected"})
-    result = await asyncio.to_thread(suggester.suggest, transcript, k)
-    return JSONResponse({
-        "transcript": transcript,
-        "suggestions": result.get("suggestions", []),
-        "sources": result.get("sources", {}),
-    })
+    # Primary card = ASR echo. No LLM = no wait. Client fires a separate
+    # /api/suggest request to enhance.
+    primary = suggester.primary_card(transcript)
+    return JSONResponse({"transcript": transcript, "primary": primary})
 
 
 # Legacy routes kept so existing frontend JS doesn't break during migration.

@@ -1,14 +1,15 @@
-"""Name suggester for the Tamil-voice → English-name flow.
+"""Name suggester: 1 ASR card + up to 3 LLM-generated English spellings.
 
-Pipeline (corpus removed per user's instruction — Sarvam ASR is the
-source of truth):
+Strategy:
+  1. Sarvam ASR transcript is the "pakka" primary card.
+  2. Sarvam LLM (sarvam-m) generates 3 plausible alternate English
+     spellings. These appear as three separate cards below.
+  3. Rule-based variants are the last-resort fallback ONLY when the LLM
+     is unavailable (missing API key or network failure) — not part of
+     the default presentation.
 
-  1. Seat the Sarvam ASR transcript as suggestion #1. ASR is "pakka"
-     in the user's words — it's the accurate form of what they said.
-  2. Ask Sarvam LLM for 3 alternate English spellings. This covers the
-     common case of name spelling variation (Preethi/Preethy/Prithi).
-  3. If the LLM returns fewer than we need, backfill with rule-based
-     spelling variants from backend/variants.py. Guarantees k cards.
+No corpus lookup. No hardcoded name list. Tamil script is generated
+client-side from the Latin name via indic-transliteration for display.
 """
 
 from __future__ import annotations
@@ -16,17 +17,36 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from . import sarvam_llm, variants
-from .phonetic import encode
+from indic_transliteration import sanscript
+from indic_transliteration.sanscript import transliterate
 
-# LLM is off by default for latency — rule-based variants produce plausible
-# spellings in <10ms, while sarvam-m's reasoning mode adds 2–3s. Set
-# SARVAM_LLM_ENABLED=true to turn on the generative layer.
-_LLM_ENABLED = os.environ.get("SARVAM_LLM_ENABLED", "false").lower() in ("1", "true", "yes")
+from . import sarvam_llm, variants
+
+_LLM_ENABLED = os.environ.get("SARVAM_LLM_ENABLED", "true").lower() in ("1", "true", "yes")
 
 
 def _title(name: str) -> str:
     return " ".join(w.capitalize() for w in name.split() if w)
+
+
+def _to_tamil_script(latin: str) -> str:
+    if not latin:
+        return ""
+    try:
+        return transliterate(latin.lower(), sanscript.ITRANS, sanscript.TAMIL)
+    except Exception:
+        return ""
+
+
+def primary_card(query: str) -> dict[str, Any]:
+    """Fast: return just the ASR-echo card. No LLM call."""
+    asr_name = _title(query)
+    return {
+        "name": asr_name,
+        "name_ta": _to_tamil_script(asr_name),
+        "score": 98.0,
+        "source": "asr",
+    }
 
 
 def suggest(query: str, k: int = 4) -> dict[str, Any]:
@@ -36,24 +56,21 @@ def suggest(query: str, k: int = 4) -> dict[str, Any]:
             "query": query,
             "suggestions": [],
             "sources": {"asr": 0, "sarvam": 0, "variant": 0},
-            "sarvam_llm_available": sarvam_llm.is_available(),
+            "sarvam_llm_enabled": _LLM_ENABLED,
         }
 
     asr_name = _title(query)
     suggestions: list[dict[str, Any]] = [{
         "name": asr_name,
-        "name_ta": "",
+        "name_ta": _to_tamil_script(asr_name),
         "score": 98.0,
         "source": "asr",
     }]
-    # Dedupe by exact (case-folded) spelling. We WANT spellings that share the
-    # same phonetic code as the ASR — they're the alternate romanizations
-    # (Preethi/Preethy/Prithi) that the user needs to pick between.
     seen_lower = {asr_name.lower()}
 
-    # Ask Sarvam LLM for (k-1) alternate spellings — opt-in via env var since
-    # it adds 2–3s (reasoning mode). Default path uses rule-based variants.
+    # Primary alternate-spelling source: Sarvam LLM.
     need = k - len(suggestions)
+    llm_used = False
     if need > 0 and _LLM_ENABLED and sarvam_llm.is_available():
         llm_names = sarvam_llm.suggest_spellings(query, k=need + 2)
         for i, name in enumerate(llm_names):
@@ -65,22 +82,23 @@ def suggest(query: str, k: int = 4) -> dict[str, Any]:
             seen_lower.add(canon.lower())
             suggestions.append({
                 "name": canon,
-                "name_ta": "",
-                "score": round(92.0 - i * 4.0, 1),
+                "name_ta": _to_tamil_script(canon),
+                "score": round(92.0 - i * 3.0, 1),
                 "source": "sarvam",
             })
+        llm_used = True
 
-    # Rule-based backstop — guarantees we hit k cards.
+    # Fallback only if LLM unavailable or returned nothing.
     need = k - len(suggestions)
-    if need > 0:
+    if need > 0 and not llm_used:
         fill = variants.generate(asr_name, [s["name"] for s in suggestions], k=need)
         for i, name in enumerate(fill):
             if len(suggestions) >= k:
                 break
             suggestions.append({
                 "name": name,
-                "name_ta": "",
-                "score": round(75.0 - i * 3.0, 1),
+                "name_ta": _to_tamil_script(name),
+                "score": round(82.0 - i * 2.0, 1),
                 "source": "variant",
             })
 
@@ -92,5 +110,5 @@ def suggest(query: str, k: int = 4) -> dict[str, Any]:
             "sarvam": sum(1 for s in suggestions if s["source"] == "sarvam"),
             "variant": sum(1 for s in suggestions if s["source"] == "variant"),
         },
-        "sarvam_llm_available": sarvam_llm.is_available(),
+        "sarvam_llm_enabled": _LLM_ENABLED,
     }
