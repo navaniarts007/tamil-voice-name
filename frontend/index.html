@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tamil Voice → English Name</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #ffffff;
+      --fg: #0f172a;
+      --muted: #64748b;
+      --muted-2: #94a3b8;
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --accent: #10b981;
+      --accent-bg: #ecfdf5;
+      --border: #e2e8f0;
+      --card: #f8fafc;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+      --gemini: #8b5cf6;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0;
+      background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 100%);
+      color: var(--fg); min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .app { max-width: 640px; margin: 0 auto; padding: 24px 20px 64px; }
+    .title { text-align: center; margin-bottom: 18px; }
+    .title h1 { margin: 0 0 4px; font-size: 22px; letter-spacing: -0.01em; }
+    .title .sub { color: var(--muted); font-size: 13px; }
+
+    /* Mic card */
+    .mic-card { background: var(--panel); border-radius: 20px;
+      padding: 24px 20px 20px; box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+      text-align: center; }
+    .mic-btn { width: 124px; height: 124px; border-radius: 50%; border: none;
+      background: var(--primary); color: white; font-size: 48px; cursor: pointer;
+      box-shadow: 0 10px 28px rgba(37, 99, 235, 0.32);
+      transition: transform 80ms ease, background 120ms ease; position: relative; }
+    .mic-btn:hover { background: var(--primary-dark); }
+    .mic-btn.recording { background: var(--danger); animation: pulse 1.3s ease-in-out infinite; }
+    .mic-btn.transcribing { background: var(--warn); cursor: wait; }
+    .mic-btn:active:not(.transcribing) { transform: scale(0.97); }
+    @keyframes pulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.55); }
+      50% { box-shadow: 0 0 0 22px rgba(239,68,68,0); }
+    }
+    .mic-label { margin-top: 12px; color: var(--muted); font-size: 13px; }
+    .mic-label .hint { color: var(--muted-2); }
+
+    /* Heard line */
+    .heard { margin-top: 16px; padding: 14px 16px; background: var(--card);
+      border: 1px solid var(--border); border-radius: 12px; min-height: 48px;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      font-size: 15px; color: var(--muted); }
+    .heard strong { color: var(--fg); font-weight: 600; font-size: 16px; }
+    .heard.empty { color: var(--muted-2); font-style: italic; }
+
+    /* Selected banner */
+    .selected { margin-top: 16px; padding: 16px 18px; border-radius: 12px;
+      background: var(--accent-bg); color: #065f46; font-weight: 600;
+      font-size: 18px; display: none; text-align: center;
+      border: 1px solid #a7f3d0; }
+    .selected.show { display: block; }
+    .selected small { display: block; font-weight: 500; font-size: 12px;
+      color: #065f46aa; margin-top: 4px; }
+
+    /* Suggestions */
+    .suggestions-wrap { margin-top: 18px; }
+    .suggestions-header { font-size: 13px; font-weight: 600; color: var(--muted);
+      margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+    ul.suggestions { list-style: none; margin: 0; padding: 0; display: grid;
+      grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 480px) { ul.suggestions { grid-template-columns: 1fr; } }
+    li.suggestion { padding: 14px 16px; background: var(--panel); border: 2px solid var(--border);
+      border-radius: 12px; cursor: pointer; display: flex; align-items: center;
+      gap: 12px; transition: border-color 120ms ease, transform 80ms ease, background 120ms ease; }
+    li.suggestion:hover { border-color: var(--primary); background: #f8fafc; }
+    li.suggestion:active { transform: scale(0.99); }
+    li.suggestion.flash { background: var(--accent-bg); border-color: var(--accent); }
+    .avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--primary);
+      color: white; display: flex; align-items: center; justify-content: center;
+      font-weight: 600; font-size: 15px; flex-shrink: 0; }
+    .suggestion-body { flex: 1; min-width: 0; }
+    .suggestion .name { font-weight: 600; font-size: 16px; line-height: 1.25; }
+    .suggestion .ta { color: var(--muted); font-weight: 400; font-size: 12px; margin-top: 2px; }
+    .suggestion-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+    .source-pill { font-size: 9.5px; padding: 2px 7px; border-radius: 8px;
+      font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
+    .source-pill.asr { background: #dcfce7; color: #166534; }
+    .source-pill.sarvam { background: #ede9fe; color: #6d28d9; }
+    .source-pill.variant { background: #fef3c7; color: #92400e; }
+    .score { font-variant-numeric: tabular-nums; color: var(--muted-2); font-size: 11px; }
+
+    .empty { text-align: center; color: var(--muted-2); padding: 22px 0;
+      font-size: 13px; grid-column: 1/-1; }
+
+    /* Controls row */
+    .controls { display: flex; justify-content: center; gap: 10px; margin-top: 14px; }
+    .btn { padding: 9px 14px; border-radius: 8px; border: 1px solid var(--border);
+      background: white; cursor: pointer; font-size: 13px; color: var(--fg);
+      transition: background 120ms ease; }
+    .btn:hover { background: var(--card); }
+    .btn.danger { color: var(--danger); border-color: #fecaca; }
+
+    /* Fallback search */
+    details.fallback { margin-top: 24px; color: var(--muted); font-size: 12px; }
+    details.fallback summary { cursor: pointer; padding: 6px 0; }
+    .search-row { display: flex; gap: 8px; padding: 10px 0 0; }
+    .search-row input { flex: 1; padding: 10px 12px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 14px; color: var(--fg); }
+
+    /* Status bar (diagnostic) */
+    .status { margin-top: 12px; text-align: center; font-size: 11px; color: var(--muted-2); min-height: 16px; }
+    .status .backend-pill { display: inline-block; padding: 2px 8px; border-radius: 8px;
+      background: rgba(37, 99, 235, 0.1); color: var(--primary); font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="title">
+      <h1>🎙️ Tamil Voice → English Name</h1>
+      <div class="sub">Speak a Tamil name. Pick the correct English spelling.</div>
+    </div>
+
+    <div class="mic-card">
+      <button id="micBtn" class="mic-btn" title="Click to record">🎤</button>
+      <div class="mic-label" id="micLabel">Tap the mic and speak a Tamil name</div>
+      <div class="heard empty" id="heard">Waiting for speech…</div>
+      <div class="controls">
+        <button id="resetBtn" class="btn">Clear</button>
+      </div>
+    </div>
+
+    <div class="selected" id="selected"></div>
+
+    <div class="suggestions-wrap">
+      <div class="suggestions-header" id="suggestionsHeader" style="display:none;">
+        Pick the correct spelling
+      </div>
+      <ul class="suggestions" id="suggestions">
+        <li class="empty">Suggestions will appear after you speak a name.</li>
+      </ul>
+    </div>
+
+    <details class="fallback">
+      <summary>Type a name instead</summary>
+      <div class="search-row">
+        <input id="textQuery" type="text" placeholder="e.g. thangamuthu, prithi, vadivel" />
+        <button id="searchBtn" class="btn">Search</button>
+      </div>
+    </details>
+
+    <div class="status" id="status"></div>
+  </div>
+
+<script>
+(() => {
+  const micBtn = document.getElementById("micBtn");
+  const micLabel = document.getElementById("micLabel");
+  const resetBtn = document.getElementById("resetBtn");
+  const heardEl = document.getElementById("heard");
+  const suggestionsEl = document.getElementById("suggestions");
+  const suggestionsHeader = document.getElementById("suggestionsHeader");
+  const selectedEl = document.getElementById("selected");
+  const statusEl = document.getElementById("status");
+  const textQuery = document.getElementById("textQuery");
+  const searchBtn = document.getElementById("searchBtn");
+
+  let audioCtx = null, mediaStream = null;
+  let sourceNode = null, processorNode = null;
+  let recording = false, transcribing = false;
+  const TARGET_SR = 16000;
+  let pcmChunks = [];            // Int16Array[] accumulated while recording
+  let lastBackend = "sarvam";
+
+  // --- auto-stop on silence (VAD) ---
+  const VAD_SILENCE_RMS = 0.012;   // anything below this is treated as silence
+  const VAD_SILENCE_MS  = 1100;    // stop after this much continuous silence…
+  const VAD_MIN_VOICE_MS = 450;    // …but only if we heard at least this much voice
+  let vadLastVoiceMs = 0;
+  let vadRecordingStartMs = 0;
+  let vadVoiceAccumMs = 0;
+  let vadTimer = null;
+
+  // -------- small helpers --------
+  function setStatus(txt) { statusEl.innerHTML = txt || ""; }
+  function setMicLabel(txt, hint) {
+    micLabel.innerHTML = txt + (hint ? ` <span class="hint">${hint}</span>` : "");
+  }
+  function setHeard(state, text) {
+    if (state === "empty")      heardEl.innerHTML = '<span>Waiting for speech…</span>', heardEl.classList.add("empty");
+    else if (state === "listening") heardEl.innerHTML = '🔴 Listening…', heardEl.classList.add("empty");
+    else if (state === "transcribing") heardEl.innerHTML = '⏳ Transcribing with Sarvam…', heardEl.classList.add("empty");
+    else if (state === "text")  { heardEl.innerHTML = `<span>Heard:</span> <strong>${text}</strong>`; heardEl.classList.remove("empty"); }
+    else if (state === "typed") { heardEl.innerHTML = `<span>Typed:</span> <strong>${text}</strong>`; heardEl.classList.remove("empty"); }
+    else if (state === "failed"){ heardEl.innerHTML = `<span style="color:var(--danger)">⚠️ Didn't catch that — try again</span>`; heardEl.classList.add("empty"); }
+  }
+  function initials(name) {
+    if (!name) return "?";
+    const p = name.trim().split(/\s+/);
+    return ((p[0]?.[0] ?? "") + (p.length > 1 ? p[p.length - 1][0] : "")).toUpperCase() || "?";
+  }
+
+  function renderSuggestions(list) {
+    suggestionsEl.innerHTML = "";
+    if (!list || list.length === 0) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.textContent = "No suggestions yet.";
+      suggestionsEl.appendChild(li);
+      suggestionsHeader.style.display = "none";
+      return;
+    }
+    suggestionsHeader.style.display = "block";
+    list.forEach((s) => {
+      const li = document.createElement("li");
+      li.className = "suggestion";
+      li.innerHTML = `
+        <div class="avatar">${initials(s.name)}</div>
+        <div class="suggestion-body">
+          <div class="name">${s.name}</div>
+          ${s.name_ta ? `<div class="ta">${s.name_ta}</div>` : ""}
+          <div class="suggestion-meta">
+            <span class="source-pill ${s.source}">${s.source}</span>
+            <span class="score">${s.score ?? ""}</span>
+          </div>
+        </div>
+      `;
+      li.addEventListener("click", () => {
+        document.querySelectorAll("li.suggestion").forEach(el => el.classList.remove("flash"));
+        li.classList.add("flash");
+        selectedEl.innerHTML = `✅ ${s.name}<small>Copied to clipboard</small>`;
+        selectedEl.classList.add("show");
+        if (navigator.clipboard) navigator.clipboard.writeText(s.name).catch(() => {});
+      });
+      suggestionsEl.appendChild(li);
+    });
+  }
+
+  function updateBackendStatus(data) {
+    if (data.asr_backend) lastBackend = data.asr_backend;
+    const srcs = data.sources || {};
+    const parts = [];
+    parts.push(`<span class="backend-pill">${lastBackend}</span>`);
+    if (srcs.asr) parts.push(`asr ${srcs.asr}`);
+    if (srcs.sarvam) parts.push(`sarvam ${srcs.sarvam}`);
+    if (srcs.variant) parts.push(`variant ${srcs.variant}`);
+    setStatus(parts.join(" · "));
+  }
+
+  // -------- audio encoding --------
+  function floatToInt16(float32) {
+    const out = new Int16Array(float32.length);
+    for (let i = 0; i < float32.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32[i]));
+      out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    return out;
+  }
+
+  // Build a WAV container from accumulated Int16 PCM chunks.
+  function pcmChunksToWav(chunks, sampleRate) {
+    let total = 0;
+    for (const c of chunks) total += c.length;
+    const samples = new Int16Array(total);
+    let off = 0;
+    for (const c of chunks) { samples.set(c, off); off += c.length; }
+    const byteLen = 44 + samples.byteLength;
+    const buf = new ArrayBuffer(byteLen);
+    const view = new DataView(buf);
+    const write = (pos, s) => { for (let i = 0; i < s.length; i++) view.setUint8(pos + i, s.charCodeAt(i)); };
+    write(0, "RIFF");
+    view.setUint32(4, byteLen - 8, true);
+    write(8, "WAVE");
+    write(12, "fmt ");
+    view.setUint32(16, 16, true);        // PCM chunk size
+    view.setUint16(20, 1, true);          // PCM format
+    view.setUint16(22, 1, true);          // channels
+    view.setUint32(24, sampleRate, true); // sample rate
+    view.setUint32(28, sampleRate * 2, true); // byte rate
+    view.setUint16(32, 2, true);          // block align
+    view.setUint16(34, 16, true);         // bits per sample
+    write(36, "data");
+    view.setUint32(40, samples.byteLength, true);
+    new Int16Array(buf, 44).set(samples);
+    return new Blob([buf], { type: "audio/wav" });
+  }
+
+  function downsample(buffer, inputSR, targetSR) {
+    if (inputSR === targetSR) return buffer;
+    const ratio = inputSR / targetSR;
+    const outLen = Math.floor(buffer.length / ratio);
+    const out = new Float32Array(outLen);
+    let oi = 0, ii = 0;
+    while (oi < outLen) {
+      const next = Math.floor((oi + 1) * ratio);
+      let sum = 0, count = 0;
+      for (let i = ii; i < next && i < buffer.length; i++) { sum += buffer[i]; count++; }
+      out[oi] = count > 0 ? sum / count : 0;
+      oi++; ii = next;
+    }
+    return out;
+  }
+
+  // -------- recording --------
+  async function startRecording() {
+    try {
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: {
+        channelCount: 1, echoCancellation: true, noiseSuppression: true,
+      }});
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const inputSR = audioCtx.sampleRate;
+      sourceNode = audioCtx.createMediaStreamSource(mediaStream);
+      processorNode = audioCtx.createScriptProcessor(4096, 1, 1);
+      sourceNode.connect(processorNode);
+      processorNode.connect(audioCtx.destination);
+      pcmChunks = [];
+
+      processorNode.onaudioprocess = (e) => {
+        if (!recording) return;
+        const input = e.inputBuffer.getChannelData(0);
+        // RMS-based voice activity detection.
+        let sumSq = 0;
+        for (let i = 0; i < input.length; i++) sumSq += input[i] * input[i];
+        const rms = Math.sqrt(sumSq / input.length);
+        const now = performance.now();
+        const chunkMs = (input.length / inputSR) * 1000;
+        if (rms > VAD_SILENCE_RMS) {
+          vadLastVoiceMs = now;
+          vadVoiceAccumMs += chunkMs;
+        }
+        const down = downsample(input, inputSR, TARGET_SR);
+        pcmChunks.push(floatToInt16(down));
+      };
+
+      // Tick every 150ms to check if we should auto-stop.
+      vadTimer = setInterval(() => {
+        if (!recording) return;
+        const now = performance.now();
+        const quietMs = vadLastVoiceMs ? now - vadLastVoiceMs : 0;
+        if (vadVoiceAccumMs >= VAD_MIN_VOICE_MS && quietMs >= VAD_SILENCE_MS) {
+          setMicLabel("Silence detected — stopping…");
+          stopRecording();
+        }
+      }, 150);
+
+      recording = true;
+      vadLastVoiceMs = 0;
+      vadVoiceAccumMs = 0;
+      vadRecordingStartMs = performance.now();
+      micBtn.classList.add("recording");
+      micBtn.textContent = "⏹";
+      setMicLabel("🔴 Listening…", "auto-stops on silence");
+      setHeard("listening");
+      selectedEl.classList.remove("show");
+      suggestionsEl.innerHTML = '<li class="empty">Keep speaking — suggestions appear after you stop.</li>';
+      suggestionsHeader.style.display = "none";
+    } catch (err) {
+      setStatus(`<span style="color:var(--danger)">Mic error: ${err.message}</span>`);
+      setMicLabel("Mic permission needed");
+    }
+  }
+
+  async function stopRecording() {
+    recording = false;
+    transcribing = true;
+    if (vadTimer) { clearInterval(vadTimer); vadTimer = null; }
+    micBtn.classList.remove("recording");
+    micBtn.classList.add("transcribing");
+    micBtn.textContent = "⏳";
+    setMicLabel("Transcribing…");
+    setHeard("transcribing");
+    try { processorNode?.disconnect(); } catch (_) {}
+    try { sourceNode?.disconnect(); } catch (_) {}
+    try { mediaStream?.getTracks().forEach(t => t.stop()); } catch (_) {}
+    try { audioCtx?.close(); } catch (_) {}
+    processorNode = null; sourceNode = null; mediaStream = null; audioCtx = null;
+
+    if (pcmChunks.length === 0) {
+      transcribing = false;
+      micBtn.classList.remove("transcribing");
+      setMicLabel("Tap the mic and try again");
+      setHeard("failed");
+      return;
+    }
+    const wavBlob = pcmChunksToWav(pcmChunks, TARGET_SR);
+    pcmChunks = [];
+
+    try {
+      const form = new FormData();
+      form.append("audio", wavBlob, "recording.wav");
+      const res = await fetch("/api/transcribe?k=4", { method: "POST", body: form });
+      const data = await res.json();
+      transcribing = false;
+      micBtn.classList.remove("transcribing");
+      setMicLabel("Tap the mic for another name");
+      if (data.error) {
+        setHeard("failed");
+        renderSuggestions([]);
+        setStatus(`<span style="color:var(--danger)">${data.error}</span>`);
+        return;
+      }
+      if (!data.transcript) {
+        setHeard("failed");
+        renderSuggestions([]);
+        return;
+      }
+      setHeard("text", data.transcript);
+      renderSuggestions(data.suggestions || []);
+      updateBackendStatus(data);
+    } catch (err) {
+      transcribing = false;
+      micBtn.classList.remove("transcribing");
+      setMicLabel("Tap the mic and try again");
+      setHeard("failed");
+      setStatus(`<span style="color:var(--danger)">${err.message}</span>`);
+    }
+  }
+
+  micBtn.addEventListener("click", () => {
+    if (transcribing) return;
+    if (recording) stopRecording();
+    else {
+      micBtn.textContent = "🎤";
+      startRecording();
+    }
+  });
+
+  resetBtn.addEventListener("click", () => {
+    setHeard("empty");
+    selectedEl.classList.remove("show");
+    selectedEl.textContent = "";
+    renderSuggestions([]);
+    textQuery.value = "";
+    setStatus("");
+    setMicLabel("Tap the mic and speak a Tamil name");
+  });
+
+  async function doTextSearch() {
+    const q = textQuery.value.trim();
+    if (!q) return;
+    setHeard("transcribing");
+    suggestionsEl.innerHTML = '<li class="empty">Searching…</li>';
+    try {
+      const res = await fetch(`/api/suggest?q=${encodeURIComponent(q)}&k=4`, { method: "POST" });
+      const json = await res.json();
+      setHeard("typed", q);
+      renderSuggestions(json.suggestions || []);
+      updateBackendStatus({ sources: json.sources });
+    } catch (err) {
+      setHeard("failed");
+      setStatus(`<span style="color:var(--danger)">${err.message}</span>`);
+    }
+  }
+  searchBtn.addEventListener("click", doTextSearch);
+  textQuery.addEventListener("keydown", (e) => { if (e.key === "Enter") doTextSearch(); });
+
+  // initial backend badge
+  fetch("/api/health").then(r => r.json()).then(h => {
+    lastBackend = h.sarvam_stt_available ? "sarvam" : "unavailable";
+    updateBackendStatus({});
+  }).catch(() => {});
+})();
+</script>
+</body>
+</html>
