@@ -55,9 +55,20 @@ app.add_middleware(
 
 
 def _final_transcript(raw: str) -> str:
+    """Ensure we return English letters regardless of what Sarvam returned.
+
+    Sarvam's `translit` mode is supposed to output Latin, but empirically
+    it sometimes returns Tamil script for single-name inputs. Run the
+    romanizer unconditionally — it's a no-op for Latin input and converts
+    Tamil → Latin for the cases translit mode misses. Also strip any
+    trailing punctuation Sarvam likes to append (e.g. "Krishna.").
+    """
     if not raw:
         return ""
-    return raw if sarvam_client.returns_latin() else romanize(raw)
+    text = romanize(raw).strip()
+    while text and text[-1] in ".,!?;:":
+        text = text[:-1].rstrip()
+    return text
 
 
 @app.get("/api/health")

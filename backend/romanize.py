@@ -76,6 +76,8 @@ _VOWEL_SIGNS = {
 
 _VIRAMA = "\u0BCD"   # ்
 _AYTHAM = "\u0B83"   # ஃ
+_ANUSVARA = "\u0B82"  # ஂ (nasal marker — render as 'ng' before velar consonants,
+                      #    'n' otherwise; simplify to 'n' here)
 
 _TAMIL_RANGE = (0x0B80, 0x0BFF)
 
@@ -154,6 +156,11 @@ def romanize(text: str) -> str:
             continue
         if ch == _AYTHAM:
             out.append("h")
+            i += 1
+            continue
+        if ch == _ANUSVARA:
+            # Nasalise the preceding syllable. "m" is a safe approximation.
+            out.append("ng")
             i += 1
             continue
         if ch == _VIRAMA:
