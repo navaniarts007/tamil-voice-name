@@ -13,10 +13,16 @@ source of truth):
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from . import sarvam_llm, variants
 from .phonetic import encode
+
+# LLM is off by default for latency — rule-based variants produce plausible
+# spellings in <10ms, while sarvam-m's reasoning mode adds 2–3s. Set
+# SARVAM_LLM_ENABLED=true to turn on the generative layer.
+_LLM_ENABLED = os.environ.get("SARVAM_LLM_ENABLED", "false").lower() in ("1", "true", "yes")
 
 
 def _title(name: str) -> str:
@@ -45,9 +51,10 @@ def suggest(query: str, k: int = 4) -> dict[str, Any]:
     # (Preethi/Preethy/Prithi) that the user needs to pick between.
     seen_lower = {asr_name.lower()}
 
-    # Ask Sarvam LLM for (k-1) alternate spellings.
+    # Ask Sarvam LLM for (k-1) alternate spellings — opt-in via env var since
+    # it adds 2–3s (reasoning mode). Default path uses rule-based variants.
     need = k - len(suggestions)
-    if need > 0 and sarvam_llm.is_available():
+    if need > 0 and _LLM_ENABLED and sarvam_llm.is_available():
         llm_names = sarvam_llm.suggest_spellings(query, k=need + 2)
         for i, name in enumerate(llm_names):
             if len(suggestions) >= k:
